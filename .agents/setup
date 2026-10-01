@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo 'Installing project dependencies'
+time npm ci --no-audit --no-fund
+echo 'Preparing local D1 database'
+time npm run db:local
