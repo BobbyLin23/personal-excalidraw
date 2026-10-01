@@ -4,15 +4,15 @@ A small, single-user Excalidraw host for Cloudflare Workers. The React editor an
 
 ## Local development
 
-Requires Node.js 20.19+ and npm.
+Requires Node.js 20.19+ and pnpm 12.0.0. Install pnpm using the [pnpm installation guide](https://pnpm.io/installation). The `packageManager` field pins the project's pnpm version.
 
 ```sh
-npm ci
-npm run db:local
-npm run dev
+pnpm install --frozen-lockfile
+pnpm run db:local
+pnpm run dev
 ```
 
-The Vite server runs the Worker with local D1/R2 emulation. `.wrangler/state` holds local data and is ignored by Git. Run `npm run build` to check types and create a deployable bundle.
+The Vite server runs the Worker with local D1/R2 emulation. `.wrangler/state` holds local data and is ignored by Git. Run `pnpm run build` to check types and create a deployable bundle.
 
 ## Deploy to Cloudflare
 
@@ -21,9 +21,9 @@ The Vite server runs the Worker with local D1/R2 emulation. `.wrangler/state` ho
 From an authenticated Wrangler session, build and deploy, then apply the schema:
 
 ```sh
-npm run build
-npx wrangler deploy
-npm run db:remote
+pnpm run build
+pnpm exec wrangler deploy
+pnpm run db:remote
 ```
 
 Wrangler's D1 and R2 bindings in `wrangler.jsonc` use [automatic provisioning](https://developers.cloudflare.com/workers/wrangler/configuration/#automatic-provisioning) on first deployment. Check your account has R2 enabled. Back up your data by exporting drawings using Excalidraw's file menu; this app does not provide automatic backups, conflict resolution between tabs, or collaboration. Cloudflare deployment and remote schema changes affect your account and should only be run when you intend to publish.

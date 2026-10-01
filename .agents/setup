@@ -2,6 +2,6 @@
 set -euo pipefail
 
 echo 'Installing project dependencies'
-time npm ci --no-audit --no-fund
+time pnpm install --frozen-lockfile
 echo 'Preparing local D1 database'
-time npm run db:local
+time pnpm run db:local

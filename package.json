@@ -2,11 +2,12 @@
   "name": "personal-excalidraw",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@12.0.0",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "deploy": "npm run build && wrangler deploy",
+    "deploy": "pnpm run build && wrangler deploy",
     "db:local": "wrangler d1 migrations apply DRAWINGS --local",
     "db:remote": "wrangler d1 migrations apply DRAWINGS --remote"
   },
