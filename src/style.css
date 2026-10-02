@@ -22,6 +22,18 @@ main { min-height: 0; flex: 1; position: relative; }
 .empty h1 { font-size: 24px; margin: 8px 0 0; }
 .empty p { color: #6b6a78; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+.login { min-height: 100%; display: grid; place-items: center; padding: 24px; background: #f8f8fb; }
+.login-card { width: 100%; max-width: 420px; padding: 32px; border: 1px solid #e9e8ee; border-radius: 16px; background: white; }
+.login-card h1 { margin: 12px 0; font-size: 25px; }
+.login-card p { color: #6b6a78; line-height: 1.6; overflow-wrap: anywhere; }
+.login-card form { display: flex; flex-direction: column; gap: 12px; margin-top: 24px; }
+.login-card label { font-size: 14px; font-weight: 600; }
+.login-card input { width: 100%; padding: 12px; }
+.login-card form button { padding: 12px; }
+.login-error { color: #a45142; font-size: 14px; }
+.login-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.login-actions button { font-size: 13px; }
+.login-card .login-note { font-size: 12px; margin: 24px 0 0; }
 @media (max-width: 850px) {
   .topbar { flex-wrap: wrap; gap: 6px 12px; }
   .controls { order: 3; width: 100%; flex-wrap: wrap; }

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Excalidraw, serializeAsJSON } from '@excalidraw/excalidraw';
 import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
+import { authClient, Login } from './auth';
 import '@excalidraw/excalidraw/index.css';
 import './style.css';
 
@@ -17,7 +18,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return response.status === 204 ? undefined as T : response.json() as Promise<T>;
 }
 
-function App() {
+function App({ onSignOut }: { onSignOut: () => void }) {
   const [drawings, setDrawings] = useState<Drawing[]>([]);
   const [current, setCurrent] = useState<LoadedDrawing | null>(null);
   const [title, setTitle] = useState('');
@@ -43,6 +44,21 @@ function App() {
 
   function canLeave() {
     return !dirty || window.confirm('Discard unsaved changes?');
+  }
+
+  async function signOut() {
+    if (busy || !canLeave()) return;
+    setBusy(true);
+    setError('');
+    try {
+      const result = await authClient.signOut();
+      if (result.error) throw new Error(result.error.message || 'Could not sign out.');
+      onSignOut();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function open(id: string) {
@@ -145,6 +161,7 @@ function App() {
           </>}
         </div>
         <span className="status" role="status">{error || (dirty ? 'Unsaved changes' : current ? 'Saved' : '')}</span>
+        <button disabled={busy} onClick={() => void signOut()}>Sign out</button>
       </header>
       <main>
         {current ? (
@@ -167,4 +184,15 @@ function App() {
   );
 }
 
-createRoot(document.getElementById('root')!).render(<App />);
+function AuthenticatedApp() {
+  const { data: session, isPending, error, refetch } = authClient.useSession();
+  // Keep an open editor mounted if the session expires, so unsaved work can be exported.
+  const [signedIn, setSignedIn] = useState(false);
+  useEffect(() => { if (session) setSignedIn(true); }, [session]);
+  if (signedIn || session) return <App onSignOut={() => setSignedIn(false)} />;
+  if (isPending) return <main className="empty"><h1>Checking your session…</h1></main>;
+  if (error) return <main className="empty"><h1>Unable to check your session</h1><p role="alert">{error.message || 'Authentication is unavailable. Check the server configuration and try again.'}</p><button onClick={() => void refetch()}>Try again</button></main>;
+  return <Login onSignedIn={refetch} />;
+}
+
+createRoot(document.getElementById('root')!).render(<AuthenticatedApp />);
