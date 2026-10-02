@@ -6,7 +6,7 @@ import { authClient, Login } from './auth';
 import '@excalidraw/excalidraw/index.css';
 import './style.css';
 
-type Drawing = { id: string; title: string; updatedAt: string };
+type Drawing = { id: string; title: string; updatedAt: string; revision: number };
 type LoadedDrawing = Drawing & { scene: { elements: unknown[]; appState: Record<string, unknown>; files: Record<string, unknown> } };
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -41,6 +41,15 @@ function App({ onSignOut }: { onSignOut: () => void }) {
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]);
+
+  useEffect(() => {
+    if (!busy) return;
+    // Excalidraw listens on document, so inert alone does not block its shortcuts.
+    const block = (event: Event) => { event.preventDefault(); event.stopImmediatePropagation(); };
+    const events = ['keydown', 'keyup', 'paste', 'cut', 'drop'];
+    events.forEach((name) => window.addEventListener(name, block, true));
+    return () => events.forEach((name) => window.removeEventListener(name, block, true));
+  }, [busy]);
 
   function canLeave() {
     return !dirty || window.confirm('Discard unsaved changes?');
@@ -111,7 +120,7 @@ function App({ onSignOut }: { onSignOut: () => void }) {
       const saved = await api<Drawing>(`/api/drawings/${current.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, scene }),
+        body: JSON.stringify({ title, scene, revision: current.revision }),
       });
       setCurrent({ ...current, ...saved, scene });
       setDrawings((items) => [saved, ...items.filter((item) => item.id !== saved.id)]);
@@ -155,7 +164,7 @@ function App({ onSignOut }: { onSignOut: () => void }) {
           </select>
           <button onClick={() => void create()} disabled={busy}>New</button>
           {current && <>
-            <input aria-label="Drawing title" maxLength={100} value={title} onChange={(event) => { setTitle(event.target.value); setDirty(event.target.value !== current.title || currentSnapshot.current !== savedSnapshot.current); }} />
+            <input aria-label="Drawing title" disabled={busy} maxLength={100} value={title} onChange={(event) => { setTitle(event.target.value); setDirty(event.target.value !== current.title || currentSnapshot.current !== savedSnapshot.current); }} />
             <button className="save" onClick={() => void save()} disabled={busy || !dirty || !title.trim()}>{busy ? 'Working…' : 'Save'}</button>
             <button className="delete" onClick={() => void remove()} disabled={busy}>Delete</button>
           </>}
@@ -163,7 +172,7 @@ function App({ onSignOut }: { onSignOut: () => void }) {
         <span className="status" role="status">{error || (dirty ? 'Unsaved changes' : current ? 'Saved' : '')}</span>
         <button disabled={busy} onClick={() => void signOut()}>Sign out</button>
       </header>
-      <main>
+      <main aria-busy={busy} {...(busy ? { inert: '' } : {})}>
         {current ? (
           <Excalidraw key={current.id} excalidrawAPI={setEditor}
             initialData={current.scene as React.ComponentProps<typeof Excalidraw>['initialData']}

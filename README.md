@@ -14,6 +14,14 @@ pnpm run dev
 
 The Vite server runs the Worker with local D1/R2 emulation. `.wrangler/state` holds local data and is ignored by Git. Run `pnpm run build` to check types and create a deployable bundle.
 
+## Saving safely
+
+The editor and title are temporarily locked during save, open, create, delete, and sign-out requests. Failed requests leave the current editor available. Saves write a new immutable R2 object, then atomically commit its object key, title, timestamp, and revision in D1. A stale tab receives a conflict rather than overwriting another tab's save; export your edits before reopening the drawing to load its latest version.
+
+Previous object versions are retained until the drawing is deleted, so storage grows with each save. They are not an automatic backup or an in-app history feature. A storage/commit failure can also leave an unreferenced candidate object; it is retained because an ambiguous D1 failure may have committed. Delete removes the legacy file and all version objects. If cleanup fails, the drawing is hidden from the library and cannot be saved again; keep its editor open and retry Delete to finish cleanup. Deletion is idempotent.
+
+`pnpm test` covers authentication, migration of existing drawings, image roundtrips, invalid documents, storage failures, and racing saves/deletes. With the dev server running and `agent-browser` installed, `node tests/ui-regression.mjs` checks delayed-request locks and conflict/error recovery in Chromium. It mocks API responses only in its isolated browser, sends no email, and does not modify local drawings. Pass a dev-server URL as its first argument if needed.
+
 ## Email-only login
 
 The Excalidraw React package supplies the editor, not authentication. This app uses [Better Auth's Email OTP plugin](https://better-auth.com/docs/plugins/email-otp): enter your email, receive a six-digit code, then sign in. No password or social login is enabled. Codes expire after five minutes, are stored hashed, and allow three wrong attempts. Sessions use HttpOnly cookies; production HTTPS cookies are Secure. Sign out revokes the session, with a warning before discarding unsaved drawings.
@@ -34,7 +42,7 @@ Generate the secret locally with `openssl rand -base64 32`. [Resend](https://res
 
 Better Auth returns a successful code-request response even if email delivery fails, and logs the failure on the Worker. If no code arrives, check spam and the Worker/Resend logs, then resend. Request acceptance does not guarantee inbox delivery.
 
-Run `pnpm run db:local` after pulling this change to add the auth tables without changing existing drawings. `pnpm test` runs Worker-runtime integration tests with isolated D1/R2 and mocked email delivery; it sends no real email. The test pool currently uses its bundled runtime's August compatibility date, while the app retains its September date.
+Run `pnpm run db:local` after pulling changes to apply the auth and drawing-revision migrations without replacing existing drawing files. `pnpm test` runs Worker-runtime integration tests with isolated D1/R2 and mocked email delivery; it sends no real email. The test pool currently uses its bundled runtime's August compatibility date, while the app retains its September date.
 
 ## Deploy to Cloudflare
 
@@ -86,6 +94,8 @@ pnpm run admin:init --remote you@example.com "Your Name"
 ```
 
 The email **must match `AUTH_EMAIL`**; the script cannot read or change that remote secret. The name is optional and defaults to `Owner`. The script normalizes the email, safely quotes SQL values, and leaves existing users untouched on repeat runs. It does not create a password, session, or verified email: you must still complete the email OTP login. It requires an explicit `--local` or `--remote` target and removes its temporary SQL file afterward.
+
+For an **existing deployment**, apply `pnpm run db:remote` before deploying this revision-aware Worker. The migration adds fields and points existing rows at their original R2 files; it does not replace those files. Reload already-open browser tabs after upgrading, since saves now require the revision returned by the API. Remote migrations and deployment require the owner's approval.
 
 ### Verify the deployment
 
