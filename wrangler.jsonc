@@ -1,16 +1,26 @@
 {
-  "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "personal-excalidraw",
-  "main": "./worker/index.ts",
-  "compatibility_date": "2026-09-25",
-  "assets": {
-    "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
-  },
-  "d1_databases": [
-    { "binding": "DRAWINGS", "database_name": "personal-excalidraw" }
-  ],
-  "r2_buckets": [
-    { "binding": "FILES" }
-  ]
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "personal-excalidraw",
+	"main": "./worker/index.ts",
+	"compatibility_date": "2026-09-25",
+	"assets": {
+		"not_found_handling": "single-page-application",
+		"run_worker_first": [
+			"/api/*"
+		]
+	},
+	"d1_databases": [
+		{
+			"binding": "DRAWINGS",
+			"database_name": "personal-excalidraw",
+			"migrations_dir": "./migrations",
+			"database_id": "0a3d7297-2348-4f2c-9a4a-1811d35b5205"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "FILES",
+			"bucket_name": "personal-excalidraw-files"
+		}
+	]
 }
