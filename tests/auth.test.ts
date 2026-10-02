@@ -2,6 +2,7 @@ import { env, applyD1Migrations } from 'cloudflare:test';
 import { beforeAll, beforeEach, afterEach, expect, it, vi } from 'vitest';
 import worker from '../worker';
 import type { AuthEnv } from '../worker/auth';
+import { adminSQL } from '../scripts/init-admin.mjs';
 
 const bindings = env as unknown as AuthEnv & { FILES: R2Bucket; MIGRATIONS: Parameters<typeof applyD1Migrations>[1] };
 const base = 'https://drawings.example.com';
@@ -46,6 +47,22 @@ beforeEach(async () => {
   await bindings.DRAWINGS.batch(['auth_session', 'auth_account', 'auth_user', 'auth_verification', 'auth_rate_limit', 'drawings'].map((table) => bindings.DRAWINGS.prepare(`DELETE FROM ${table}`)));
 });
 afterEach(() => vi.restoreAllMocks());
+
+it('initializes the owner idempotently without bypassing OTP verification', async () => {
+  expect(() => adminSQL('not-an-email')).toThrow();
+  expect(() => adminSQL('owner@example.com', ' ')).toThrow();
+  await bindings.DRAWINGS.prepare(adminSQL(' Owner@Example.com ', "Owner's drawings")).run();
+  const owner = await bindings.DRAWINGS.prepare('SELECT * FROM auth_user').first();
+  expect(owner).toMatchObject({ email: 'owner@example.com', name: "Owner's drawings", emailVerified: 0 });
+  await bindings.DRAWINGS.prepare(adminSQL('owner@example.com', 'Replacement')).run();
+  expect(await bindings.DRAWINGS.prepare('SELECT * FROM auth_user').first()).toEqual(owner);
+  const cookie = await login();
+  expect(await bindings.DRAWINGS.prepare('SELECT id, emailVerified FROM auth_user').first()).toEqual({ id: owner!.id, emailVerified: 1 });
+  expect((await request('/api/drawings', 'GET', undefined, cookie)).status).toBe(200);
+  await bindings.DRAWINGS.prepare(adminSQL('OWNER@example.com')).run();
+  expect(await bindings.DRAWINGS.prepare('SELECT COUNT(*) AS count FROM auth_user').first()).toEqual({ count: 1 });
+  expect(await bindings.DRAWINGS.prepare('SELECT emailVerified FROM auth_user').first()).toEqual({ emailVerified: 1 });
+});
 
 it('denies every drawing operation without a session and fails closed without configuration', async () => {
   for (const [path, method] of [['/api/drawings', 'GET'], ['/api/drawings', 'POST'], ...['GET', 'PUT', 'DELETE'].map((method) => ['/api/drawings/00000000-0000-0000-0000-000000000000', method])]) {

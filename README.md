@@ -38,16 +38,61 @@ Run `pnpm run db:local` after pulling this change to add the auth tables without
 
 ## Deploy to Cloudflare
 
-Configure production Worker secrets using `pnpm exec wrangler secret put NAME` for each of `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `AUTH_EMAIL`, `RESEND_API_KEY`, and `EMAIL_FROM`. The URL must be your exact public HTTPS origin. Never put these credentials in frontend `VITE_*` variables or commit them. Apply the auth migration and configure secrets before using the deployed login.
+Deploy this project as a **Cloudflare Worker**, not a Pages project. The Vite build produces both the React assets and the API Worker. You need a Cloudflare account with Workers, D1, and R2 enabled, plus a Resend API key and verified sending domain.
+
+1. Install dependencies and authenticate Wrangler on your machine:
+
+   ```sh
+   pnpm install --frozen-lockfile
+   pnpm exec wrangler login
+   pnpm exec wrangler whoami
+   ```
+
+2. Build and deploy, then apply the database migrations:
+
+   ```sh
+   pnpm run deploy
+   pnpm run db:remote
+   ```
+
+   Wrangler's D1 and R2 bindings in `wrangler.jsonc` use [automatic provisioning](https://developers.cloudflare.com/workers/wrangler/configuration/#automatic-provisioning) on first deployment. Review any resource creation/selection prompts and confirm `DRAWINGS` points to the intended D1 database and `FILES` to the intended R2 bucket in the Worker dashboard. Retain any resource IDs/names Wrangler writes into the configuration. The Vite plugin generates the deployment configuration during the build; always rebuild before deploying changed code or configuration. The API intentionally returns 503 until all auth settings are supplied.
+
+3. Choose your final HTTPS hostname (prefer a custom domain configured under Workers & Pages → `personal-excalidraw` → Settings → Domains & Routes), then set each Worker secret interactively:
+
+   ```sh
+   pnpm exec wrangler secret put BETTER_AUTH_SECRET
+   pnpm exec wrangler secret put BETTER_AUTH_URL
+   pnpm exec wrangler secret put AUTH_EMAIL
+   pnpm exec wrangler secret put RESEND_API_KEY
+   pnpm exec wrangler secret put EMAIL_FROM
+   ```
+
+   Use a random secret of at least 32 characters (`openssl rand -base64 32`), your exact public HTTPS origin for `BETTER_AUTH_URL` (for example `https://drawings.example.com`), your owner email for `AUTH_EMAIL`, and a verified Resend sender for `EMAIL_FROM` (for example `Drawings <login@example.com>`). Never put these credentials in frontend `VITE_*` variables or commit them. Local `.dev.vars` does not configure production secrets.
 
 Before storing private content, also configure a [Cloudflare Access self-hosted application](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/self-hosted-app/) for the entire Worker hostname (not only the UI path), with an allow policy limited to your identity. This project retains Access as an additional deployment protection. A custom domain behind Access is recommended; ensure any `*.workers.dev` route is disabled or protected too. Without Access, the login page and static assets are public, but drawing APIs require the app session. Check unauthenticated `/api/drawings` requests are denied.
 
-From an authenticated Wrangler session, build and deploy, then apply the schema:
+### Initialize the owner (admin)
+
+There is no separate admin role or password in the database: `AUTH_EMAIL` determines the single authorized owner. The first successful email OTP login creates that user automatically. To pre-create the owner explicitly, apply migrations first, then run:
 
 ```sh
-pnpm run build
-pnpm exec wrangler deploy
+# Local database only:
+pnpm run db:local
+pnpm run admin:init --local you@example.com "Your Name"
+
+# Production database (intentional remote write):
 pnpm run db:remote
+pnpm run admin:init --remote you@example.com "Your Name"
 ```
 
-Wrangler's D1 and R2 bindings in `wrangler.jsonc` use [automatic provisioning](https://developers.cloudflare.com/workers/wrangler/configuration/#automatic-provisioning) on first deployment. Check your account has R2 enabled. Back up your data by exporting drawings using Excalidraw's file menu; this app does not provide automatic backups, conflict resolution between tabs, or collaboration. Cloudflare deployment and remote schema changes affect your account and should only be run when you intend to publish.
+The email **must match `AUTH_EMAIL`**; the script cannot read or change that remote secret. The name is optional and defaults to `Owner`. The script normalizes the email, safely quotes SQL values, and leaves existing users untouched on repeat runs. It does not create a password, session, or verified email: you must still complete the email OTP login. It requires an explicit `--local` or `--remote` target and removes its temporary SQL file afterward.
+
+### Verify the deployment
+
+- Run `pnpm exec wrangler deployments list` and `pnpm exec wrangler secret list` to check the deployed Worker and presence of all five settings (secret values are not shown).
+- In the Cloudflare dashboard, confirm the D1/R2 bindings and Access policy cover the final hostname and any alternate routes.
+- Open the site in a private browser window. Access should challenge an unauthenticated visitor. After passing Access but before app login, `/api/drawings` should return 401, not drawing data. A 503 means app auth configuration is incomplete.
+- Sign in with `AUTH_EMAIL`, save a drawing, reload and reopen it, then sign out and confirm drawings are inaccessible.
+- If email does not arrive, run `pnpm exec wrangler tail` and inspect Resend delivery logs. Do not share secrets or OTPs from logs.
+
+Back up your data by exporting drawings using Excalidraw's file menu; this app does not provide automatic backups, conflict resolution between tabs, or collaboration. Cloudflare deployment and remote schema changes affect your account and should only be run when you intend to publish.

@@ -10,7 +10,8 @@
     "preview": "vite preview --host 0.0.0.0",
     "deploy": "pnpm run build && wrangler deploy",
     "db:local": "wrangler d1 migrations apply DRAWINGS --local",
-    "db:remote": "wrangler d1 migrations apply DRAWINGS --remote"
+    "db:remote": "wrangler d1 migrations apply DRAWINGS --remote",
+    "admin:init": "node scripts/init-admin.mjs"
   },
   "dependencies": {
     "@excalidraw/excalidraw": "^0.18.0",
