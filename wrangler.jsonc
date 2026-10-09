@@ -12,7 +12,7 @@
     "run_worker_first": ["/api/*"]
   },
   "d1_databases": [
-    { "binding": "DRAWINGS", "database_name": "personal-excalidraw", "database_id": "0a3d7297-2348-4f2c-9a4a-1811d35b5205" }
+    { "binding": "DRAWINGS", "database_name": "personal-excalidraw", "database_id": "0a3d7297-2348-4f2c-9a4a-1811d35b5205", "migrations_dir": "./migrations" }
   ],
   "r2_buckets": [
     { "binding": "FILES", "bucket_name": "personal-excalidraw-files" }
