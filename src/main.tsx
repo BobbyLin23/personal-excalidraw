@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Excalidraw, serializeAsJSON } from '@excalidraw/excalidraw';
 import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
+import { Button, ListBox, ListBoxItem, Popover, Select, SelectValue } from 'react-aria-components';
 import { authClient, Login } from './auth';
 import '@excalidraw/excalidraw/index.css';
 import './style.css';
@@ -157,11 +158,21 @@ function App({ onSignOut }: { onSignOut: () => void }) {
       <header className="topbar">
         <div className="brand"><span className="brand-mark">✳</span> My drawings</div>
         <div className="controls">
-          <label className="sr-only" htmlFor="drawing-select">Open drawing</label>
-          <select id="drawing-select" value={current?.id || ''} disabled={busy} onChange={(event) => void open(event.target.value)}>
-            <option value="">Choose a drawing</option>
-            {drawings.map((drawing) => <option key={drawing.id} value={drawing.id}>{drawing.title}</option>)}
-          </select>
+          <Select className="drawing-select" aria-label="Open drawing" placeholder="Choose a drawing"
+            selectedKey={current?.id ?? null} isDisabled={busy} allowsEmptyCollection
+            onSelectionChange={(key) => { if (key !== null) void open(String(key)); }}>
+            <Button className="drawing-select-trigger">
+              <SelectValue className="drawing-select-value" />
+              <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="m4 6 4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            </Button>
+            <Popover className="drawing-select-popover" placement="bottom start" offset={6}>
+              <ListBox className="drawing-select-list" items={drawings} renderEmptyState={() => <div className="drawing-select-empty">No drawings yet</div>}>
+                {(drawing) => <ListBoxItem className="drawing-select-option" id={drawing.id} textValue={drawing.title}>
+                  {({ isSelected }) => <><span className="drawing-select-title">{drawing.title}</span><span className="drawing-select-check" aria-hidden="true">{isSelected ? '✓' : ''}</span></>}
+                </ListBoxItem>}
+              </ListBox>
+            </Popover>
+          </Select>
           <button onClick={() => void create()} disabled={busy}>New</button>
           {current && <>
             <input aria-label="Drawing title" disabled={busy} maxLength={100} value={title} onChange={(event) => { setTitle(event.target.value); setDirty(event.target.value !== current.title || currentSnapshot.current !== savedSnapshot.current); }} />
