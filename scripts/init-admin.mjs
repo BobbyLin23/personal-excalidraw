@@ -4,18 +4,22 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { hashPassword } from 'better-auth/crypto';
 
-export function adminSQL(email, name = 'Owner') {
+export async function adminSQL(email, password, name = 'Owner') {
   email = email.trim().toLowerCase();
   name = name.trim();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !name) {
     throw new Error('Provide a valid owner email and a nonempty name.');
   }
+  if (typeof password !== 'string' || password.length < 12 || password.length > 128) {
+    throw new Error('Provide an owner password of 12–128 characters through OWNER_PASSWORD.');
+  }
   const quote = (value) => `'${value.replaceAll("'", "''")}'`;
   const now = Date.now();
-  return `INSERT INTO auth_user (id, name, email, emailVerified, createdAt, updatedAt)
-VALUES (${quote(randomUUID())}, ${quote(name)}, ${quote(email)}, 0, ${now}, ${now})
-ON CONFLICT(email) DO NOTHING;`;
+  const hash = await hashPassword(password);
+  return `INSERT INTO auth_user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (${quote(randomUUID())}, ${quote(name)}, ${quote(email)}, 0, ${now}, ${now}) ON CONFLICT(email) DO NOTHING;
+INSERT INTO auth_account (id, accountId, providerId, userId, password, createdAt, updatedAt) SELECT ${quote(randomUUID())}, id, 'credential', id, ${quote(hash)}, ${now}, ${now} FROM auth_user WHERE email = ${quote(email)} AND NOT EXISTS (SELECT 1 FROM auth_account WHERE userId = auth_user.id AND providerId = 'credential');`;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -25,7 +29,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     if (!['--local', '--remote'].includes(target) || !email || extra.length) {
       throw new Error('Usage: pnpm run admin:init --local|--remote EMAIL [NAME]\nEMAIL must match the Worker AUTH_EMAIL. Apply database migrations first.');
     }
-    const sql = adminSQL(email, name);
+    const sql = await adminSQL(email, process.env.OWNER_PASSWORD, name);
     directory = mkdtempSync(join(tmpdir(), 'excalidraw-admin-'));
     const file = join(directory, 'init.sql');
     writeFileSync(file, sql, { mode: 0o600 });
@@ -36,7 +40,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     });
     if (result.error) throw result.error;
     if (result.status !== 0) throw new Error(`Wrangler failed (${result.status ?? result.signal}).`);
-    console.log('Owner initialization complete. Sign in with an email OTP to verify the address.');
+    console.log('Owner initialization complete. Sign in with your email and password. Existing passwords are left unchanged.');
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;

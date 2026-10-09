@@ -14,8 +14,6 @@ export default defineConfig(async () => ({
         BETTER_AUTH_SECRET: 'test-only-secret-at-least-thirty-two-characters',
         BETTER_AUTH_URL: 'https://drawings.example.com',
         AUTH_EMAIL: 'owner@example.com',
-        RESEND_API_KEY: 'test-only-key',
-        EMAIL_FROM: 'Drawings <login@example.com>',
       },
     },
   })],

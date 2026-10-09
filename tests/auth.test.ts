@@ -7,7 +7,8 @@ import { adminSQL } from '../scripts/init-admin.mjs';
 const bindings = env as unknown as AuthEnv & { FILES: R2Bucket; MIGRATIONS: Parameters<typeof applyD1Migrations>[1] };
 const base = 'https://drawings.example.com';
 let ip = 0;
-let otp = '';
+const password = 'test-only-owner-password';
+let ownerSQL: string;
 
 function request(path: string, method = 'GET', body?: unknown, cookie?: string, origin = base) {
   return worker.fetch(new Request(`${base}${path}`, {
@@ -17,28 +18,17 @@ function request(path: string, method = 'GET', body?: unknown, cookie?: string, 
   }), bindings);
 }
 
-function mockEmail(status = 200) {
-  vi.mocked(fetch).mockImplementationOnce(async (url, options) => {
-    expect(url).toBe('https://api.resend.com/emails');
-    expect(options?.method).toBe('POST');
-    const mail = JSON.parse(options!.body as string);
-    expect(mail.to).toEqual(['owner@example.com']);
-    otp = /code is (\d{6})/.exec(mail.text)![1];
-    return Response.json({ id: 'test-mail' }, { status });
-  });
-}
-
 async function login() {
-  mockEmail();
-  expect((await request('/api/auth/email-otp/send-verification-otp', 'POST', { email: 'Owner@Example.com', type: 'sign-in' })).status).toBe(200);
-  const response = await request('/api/auth/sign-in/email-otp', 'POST', { email: 'owner@example.com', otp });
+  const response = await request('/api/auth/sign-in/email', 'POST', { email: 'Owner@Example.com', password, rememberMe: false });
   expect(response.status).toBe(200);
   expect(response.headers.get('set-cookie')).toContain('HttpOnly');
   expect(response.headers.get('set-cookie')).toContain('Secure');
+  expect(response.headers.get('set-cookie')).toContain('Max-Age=604800');
   return response.headers.get('set-cookie')!.split(';')[0];
 }
 
 beforeAll(async () => {
+  ownerSQL = await adminSQL('owner@example.com', password, "Owner's drawings");
   await applyD1Migrations(bindings.DRAWINGS, bindings.MIGRATIONS.slice(0, 2));
   const id = '00000000-0000-0000-0000-000000000099';
   const objectKey = `drawings/${id}.excalidraw`;
@@ -55,23 +45,24 @@ beforeEach(async () => {
   ip++;
   vi.spyOn(globalThis, 'fetch').mockImplementation(async () => { throw new Error('Unexpected outbound request'); });
   await bindings.DRAWINGS.batch(['auth_session', 'auth_account', 'auth_user', 'auth_verification', 'auth_rate_limit', 'drawings'].map((table) => bindings.DRAWINGS.prepare(`DELETE FROM ${table}`)));
+  await bindings.DRAWINGS.exec(ownerSQL);
 });
 afterEach(() => vi.restoreAllMocks());
 
-it('initializes the owner idempotently without bypassing OTP verification', async () => {
-  expect(() => adminSQL('not-an-email')).toThrow();
-  expect(() => adminSQL('owner@example.com', ' ')).toThrow();
-  await bindings.DRAWINGS.prepare(adminSQL(' Owner@Example.com ', "Owner's drawings")).run();
+it('initializes hashed owner credentials idempotently without changing an existing password', async () => {
+  await expect(adminSQL('not-an-email', password)).rejects.toThrow();
+  await expect(adminSQL('owner@example.com', password, ' ')).rejects.toThrow();
+  await expect(adminSQL('owner@example.com', 'short')).rejects.toThrow();
   const owner = await bindings.DRAWINGS.prepare('SELECT * FROM auth_user').first();
   expect(owner).toMatchObject({ email: 'owner@example.com', name: "Owner's drawings", emailVerified: 0 });
-  await bindings.DRAWINGS.prepare(adminSQL('owner@example.com', 'Replacement')).run();
+  const account = await bindings.DRAWINGS.prepare('SELECT * FROM auth_account').first();
+  expect(account!.password).not.toBe(password);
+  await bindings.DRAWINGS.exec(await adminSQL(' OWNER@example.com ', 'replacement-password', 'Replacement'));
   expect(await bindings.DRAWINGS.prepare('SELECT * FROM auth_user').first()).toEqual(owner);
+  expect(await bindings.DRAWINGS.prepare('SELECT * FROM auth_account').first()).toEqual(account);
   const cookie = await login();
-  expect(await bindings.DRAWINGS.prepare('SELECT id, emailVerified FROM auth_user').first()).toEqual({ id: owner!.id, emailVerified: 1 });
   expect((await request('/api/drawings', 'GET', undefined, cookie)).status).toBe(200);
-  await bindings.DRAWINGS.prepare(adminSQL('OWNER@example.com')).run();
   expect(await bindings.DRAWINGS.prepare('SELECT COUNT(*) AS count FROM auth_user').first()).toEqual({ count: 1 });
-  expect(await bindings.DRAWINGS.prepare('SELECT emailVerified FROM auth_user').first()).toEqual({ emailVerified: 1 });
 });
 
 it('denies every drawing operation without a session and fails closed without configuration', async () => {
@@ -82,17 +73,16 @@ it('denies every drawing operation without a session and fails closed without co
 });
 
 it('rejects other emails, unsupported auth routes and cross-origin login', async () => {
-  expect((await request('/api/auth/email-otp/send-verification-otp', 'POST', { email: 'stranger@example.com', type: 'sign-in' })).status).toBe(403);
-  expect((await request('/api/auth/sign-in/email-otp', 'POST', { email: 'stranger@example.com', otp: '123456' })).status).toBe(403);
-  expect((await request('/api/auth/email-otp/get-verification-otp', 'POST', { email: 'owner@example.com', type: 'sign-in' })).status).toBe(404);
-  expect((await request('/api/auth/email-otp/send-verification-otp', 'POST', { email: 'owner@example.com', type: 'sign-in' }, undefined, 'https://evil.example')).status).toBe(403);
+  expect((await request('/api/auth/sign-in/email', 'POST', { email: 'stranger@example.com', password })).status).toBe(403);
+  expect((await request('/api/auth/sign-up/email', 'POST', { email: 'owner@example.com', password, name: 'Intruder' })).status).toBe(404);
+  expect((await request('/api/auth/sign-in/email-otp', 'POST', { email: 'owner@example.com', otp: '123456' })).status).toBe(404);
+  expect((await request('/api/auth/sign-in/email', 'POST', { email: 'owner@example.com', password }, undefined, 'https://evil.example')).status).toBe(403);
 });
 
-it('verifies email, preserves drawing CRUD, persists sessions, prevents replay and revokes on sign-out', async () => {
+it('preserves drawing CRUD, persists owner sessions and revokes on sign-out', async () => {
   const cookie = await login();
   const session = await (await request('/api/auth/get-session', 'GET', undefined, cookie)).json() as { user: { emailVerified: boolean } };
-  expect(session.user.emailVerified).toBe(true);
-  expect((await request('/api/auth/sign-in/email-otp', 'POST', { email: 'owner@example.com', otp })).status).toBe(400);
+  expect(session.user.emailVerified).toBe(false);
   expect((await request('/api/drawings', 'POST', undefined, cookie, 'https://evil.example')).status).toBe(403);
   const created = await request('/api/drawings', 'POST', undefined, cookie);
   expect(created.status).toBe(201);
@@ -105,47 +95,29 @@ it('verifies email, preserves drawing CRUD, persists sessions, prevents replay a
   expect((await request(path, 'DELETE', undefined, cookie)).status).toBe(204);
   await bindings.DRAWINGS.prepare('UPDATE auth_user SET email = ?').bind('stranger@example.com').run();
   expect((await request('/api/drawings', 'GET', undefined, cookie)).status).toBe(403);
-  await bindings.DRAWINGS.prepare('UPDATE auth_user SET email = ?, emailVerified = 0').bind('owner@example.com').run();
-  expect((await request('/api/drawings', 'GET', undefined, cookie)).status).toBe(403);
-  await bindings.DRAWINGS.prepare('UPDATE auth_user SET emailVerified = 1').run();
+  await bindings.DRAWINGS.prepare('UPDATE auth_user SET email = ?').bind('owner@example.com').run();
   expect((await request('/api/auth/sign-out', 'POST', {}, cookie)).status).toBe(200);
   expect((await request('/api/drawings', 'GET', undefined, cookie)).status).toBe(401);
 });
 
-it('rejects expired and forged sessions', async () => {
+it('expires sessions after seven days without sliding renewal and rejects forged cookies', async () => {
   const cookie = await login();
   expect((await request('/api/drawings', 'GET', undefined, `${cookie}tampered`)).status).toBe(401);
-  await bindings.DRAWINGS.prepare('UPDATE auth_session SET expiresAt = 0').run();
+  const session = await bindings.DRAWINGS.prepare('SELECT createdAt, expiresAt FROM auth_session').first<{ createdAt: string; expiresAt: string }>();
+  expect(new Date(session!.expiresAt).getTime() - new Date(session!.createdAt).getTime()).toBe(7 * 24 * 60 * 60 * 1000);
+  const nearExpiry = new Date(Date.now() + 60_000).toISOString();
+  await bindings.DRAWINGS.prepare('UPDATE auth_session SET expiresAt = ?, updatedAt = ?').bind(nearExpiry, new Date(0).toISOString()).run();
+  expect((await request('/api/drawings', 'GET', undefined, cookie)).status).toBe(200);
+  expect((await bindings.DRAWINGS.prepare('SELECT expiresAt FROM auth_session').first())!.expiresAt).toBe(nearExpiry);
+  await bindings.DRAWINGS.prepare('UPDATE auth_session SET expiresAt = ?').bind(new Date(Date.now() - 1).toISOString()).run();
   expect((await request('/api/drawings', 'GET', undefined, cookie)).status).toBe(401);
 });
 
-it('hashes codes, limits wrong attempts, and rejects expired codes', async () => {
-  mockEmail();
-  await request('/api/auth/email-otp/send-verification-otp', 'POST', { email: 'owner@example.com', type: 'sign-in' });
-  const record = await bindings.DRAWINGS.prepare('SELECT value FROM auth_verification').first<{ value: string }>();
-  expect(record!.value).not.toContain(otp);
-  const wrong = otp === '000000' ? '999999' : '000000';
-  for (let attempt = 0; attempt < 3; attempt++) expect((await request('/api/auth/sign-in/email-otp', 'POST', { email: 'owner@example.com', otp: wrong })).status).toBe(400);
-  expect((await request('/api/auth/sign-in/email-otp', 'POST', { email: 'owner@example.com', otp })).status).not.toBe(200);
-  ip++;
-  mockEmail();
-  await request('/api/auth/email-otp/send-verification-otp', 'POST', { email: 'owner@example.com', type: 'sign-in' });
-  await bindings.DRAWINGS.prepare('UPDATE auth_verification SET expiresAt = 0').run();
-  expect((await request('/api/auth/sign-in/email-otp', 'POST', { email: 'owner@example.com', otp })).status).toBe(400);
-});
-
-it('persists rate limits across requests and logs email delivery failure without granting access', async () => {
-  for (let i = 0; i < 3; i++) {
-    mockEmail();
-    expect((await request('/api/auth/email-otp/send-verification-otp', 'POST', { email: 'owner@example.com', type: 'sign-in' })).status).toBe(200);
+it('rejects wrong passwords and persists login rate limits across requests', async () => {
+  for (let i = 0; i < 5; i++) {
+    expect((await request('/api/auth/sign-in/email', 'POST', { email: 'owner@example.com', password: 'wrong-password' })).status).toBe(401);
   }
-  expect((await request('/api/auth/email-otp/send-verification-otp', 'POST', { email: 'owner@example.com', type: 'sign-in' })).status).toBe(429);
-  ip++;
-  mockEmail(500);
-  const log = vi.spyOn(console, 'error').mockImplementation(() => {});
-  // Better Auth intentionally returns success even if its mail callback fails.
-  expect((await request('/api/auth/email-otp/send-verification-otp', 'POST', { email: 'owner@example.com', type: 'sign-in' })).status).toBe(200);
-  expect(log).toHaveBeenCalled();
+  expect((await request('/api/auth/sign-in/email', 'POST', { email: 'owner@example.com', password })).status).toBe(429);
   expect((await request('/api/drawings')).status).toBe(401);
 });
 

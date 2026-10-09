@@ -44,7 +44,7 @@ export default {
     const { pathname } = new URL(request.url);
     const method = request.method;
 
-    if (!env.BETTER_AUTH_SECRET || !env.BETTER_AUTH_URL || !env.AUTH_EMAIL || !env.RESEND_API_KEY || !env.EMAIL_FROM) {
+    if (!env.BETTER_AUTH_SECRET || !env.BETTER_AUTH_URL || !env.AUTH_EMAIL) {
       return json({ error: 'Authentication is not configured. Contact the app owner.' }, 503);
     }
     const auth = createAuth(env);
@@ -52,15 +52,14 @@ export default {
       const routes: Record<string, string> = {
         '/api/auth/get-session': 'GET',
         '/api/auth/sign-out': 'POST',
-        '/api/auth/email-otp/send-verification-otp': 'POST',
-        '/api/auth/sign-in/email-otp': 'POST',
+        '/api/auth/sign-in/email': 'POST',
       };
       if (routes[pathname] !== method) return json({ error: 'Not found' }, 404);
       return auth.handler(request);
     }
     const session = await auth.api.getSession({ headers: request.headers });
     if (!session) return json({ error: 'Please sign in to access your drawings.' }, 401);
-    if (!session.user.emailVerified || session.user.email.toLowerCase() !== env.AUTH_EMAIL.trim().toLowerCase()) {
+    if (session.user.email.toLowerCase() !== env.AUTH_EMAIL.trim().toLowerCase()) {
       return json({ error: 'Not authorized' }, 403);
     }
     if (method !== 'GET' && request.headers.get('origin') !== new URL(env.BETTER_AUTH_URL).origin) {
