@@ -7,8 +7,19 @@ import { authClient, Login } from './auth';
 import '@excalidraw/excalidraw/index.css';
 import './style.css';
 
+type Theme = 'light' | 'dark';
 type Drawing = { id: string; title: string; updatedAt: string; revision: number };
 type LoadedDrawing = Drawing & { scene: { elements: unknown[]; appState: Record<string, unknown>; files: Record<string, unknown> } };
+
+const THEME_KEY = 'theme';
+const storedTheme = localStorage.getItem(THEME_KEY);
+const initialTheme: Theme = storedTheme === 'light' || storedTheme === 'dark' ? storedTheme
+  : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+document.documentElement.dataset.theme = initialTheme;
+// Ctrl/Cmd+S saves to this app instead of Excalidraw's local-file save.
+const UI_OPTIONS = { canvasActions: { toggleTheme: true, saveToActiveFile: false } };
+const isSaveShortcut = (event: KeyboardEvent) => (event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 's';
+const HEADER_KEYS = new Set(['Enter', ' ', 'Escape', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown']);
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
@@ -28,6 +39,8 @@ function App({ onSignOut }: { onSignOut: () => void }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [editor, setEditor] = useState<ExcalidrawImperativeAPI | null>(null);
+  const [theme, setTheme] = useState<Theme>(initialTheme);
+  const editorTheme = useRef<Theme | null>(null);
   const savedSnapshot = useRef<string | null>(null);
   const currentSnapshot = useRef<string | null>(null);
 
@@ -42,6 +55,21 @@ function App({ onSignOut }: { onSignOut: () => void }) {
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem(THEME_KEY, theme);
+  }, [theme]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!isSaveShortcut(event)) return;
+      event.preventDefault();
+      if (dirty && title.trim()) void save();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  });
 
   useEffect(() => {
     if (!busy) return;
@@ -155,7 +183,11 @@ function App({ onSignOut }: { onSignOut: () => void }) {
 
   return (
     <div className="app">
-      <header className="topbar">
+      {/* Excalidraw handles shortcuts on document; keep header navigation keys and list typeahead from reaching the canvas. */}
+      <header className="topbar" onKeyDown={(event) => {
+        if (event.ctrlKey || event.metaKey || event.altKey) return;
+        if (HEADER_KEYS.has(event.key) || (event.target as Element).closest('[role="listbox"]')) event.stopPropagation();
+      }}>
         <div className="brand"><span className="brand-mark">✳</span> My drawings</div>
         <div className="controls">
           <Select className="drawing-select" aria-label="Open drawing" placeholder="Choose a drawing"
@@ -181,13 +213,24 @@ function App({ onSignOut }: { onSignOut: () => void }) {
           </>}
         </div>
         <span className="status" role="status">{error || (dirty ? 'Unsaved changes' : current ? 'Saved' : '')}</span>
+        <button className="theme-toggle" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} title={`${theme === 'dark' ? 'Light' : 'Dark'} mode (Shift+Alt+D)`}>
+          {theme === 'dark'
+            ? <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>
+            : <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" /></svg>}
+        </button>
         <button disabled={busy} onClick={() => void signOut()}>Sign out</button>
       </header>
       <main aria-busy={busy} {...(busy ? { inert: '' } : {})}>
         {current ? (
-          <Excalidraw key={current.id} excalidrawAPI={setEditor}
+          <Excalidraw key={current.id} excalidrawAPI={setEditor} theme={theme} UIOptions={UI_OPTIONS} handleKeyboardGlobally
             initialData={current.scene as React.ComponentProps<typeof Excalidraw>['initialData']}
             onChange={(elements, appState, files) => {
+              // Follow Excalidraw's own theme toggle; ignore the stale theme it reports while applying a prop change.
+              if (appState.theme !== editorTheme.current) {
+                editorTheme.current = appState.theme;
+                setTheme(appState.theme);
+              }
               const snapshot = serializeAsJSON(elements, appState, files, 'local');
               if (savedSnapshot.current === null) savedSnapshot.current = snapshot;
               currentSnapshot.current = snapshot;

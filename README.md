@@ -1,6 +1,8 @@
 # Personal Excalidraw
 
-A small, single-user Excalidraw host for Cloudflare Workers. The React editor and API run on one Worker; D1 indexes drawings and R2 stores each complete `.excalidraw` document, including embedded images. Create, rename, save, open and delete drawings from the top bar. Saving is **manual**; the app warns before discarding unsaved changes. Excalidraw's own menu can export a local backup.
+A small, single-user Excalidraw host for Cloudflare Workers. The React editor and API run on one Worker; D1 indexes drawings and R2 stores each complete `.excalidraw` document, including embedded images. Create, rename, save, open and delete drawings from the top bar. Saving is **manual** (there is no autosave); the app warns before discarding unsaved changes. Excalidraw's own menu can export a local backup.
+
+Excalidraw keyboard shortcuts work anywhere on the page, as on excalidraw.com, except while typing in a field. Press `?` for the full list. `Ctrl/Cmd+S` saves the current drawing to this app, and `Shift+Alt+D` or the header's sun/moon button switches between light and dark mode. The theme choice is remembered in the browser.
 
 ## Local development
 

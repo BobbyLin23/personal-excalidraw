@@ -156,7 +156,7 @@ try {
   locked();
   release();
   wait('document.querySelector("header input").value === "New drawing"');
-  browser('click', 'header > button');
+  browser('find', 'role', 'button', 'click', '--name', 'Sign out', '--exact');
   wait('window.__pending?.path === "/api/auth/sign-out"');
   locked();
   release(500);
@@ -168,7 +168,7 @@ try {
   release(503);
   wait('!document.querySelector("main").inert');
   assert('document.querySelector("header input").value === "New drawing"');
-  browser('click', 'header > button');
+  browser('find', 'role', 'button', 'click', '--name', 'Sign out', '--exact');
   wait('window.__pending?.path === "/api/auth/sign-out"');
   locked();
   release();
