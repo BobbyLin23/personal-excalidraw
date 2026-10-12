@@ -46,6 +46,15 @@ Run `pnpm run db:local` after pulling changes to apply the auth and drawing-revi
 
 Deploy this project as a **Cloudflare Worker**, not a Pages project. The Vite build produces both the React assets and the API Worker. You need a Cloudflare account with Workers, D1, and R2 enabled.
 
+### Automatic deployment with GitHub Actions
+
+The `.github/workflows/deploy.yml` workflow runs tests and a production build, then deploys the Worker whenever code is pushed to `main`. You can also start it manually from the repository's **Actions → Deploy → Run workflow** page. Before enabling it, add these repository actions secrets under **Settings → Secrets and variables → Actions**:
+
+- `CLOUDFLARE_API_TOKEN`: a Cloudflare API token authorized to deploy Workers in this account. Grant only the permissions required for Worker deployment and the configured custom domain/route.
+- `CLOUDFLARE_ACCOUNT_ID`: the Cloudflare account ID that owns the Worker and its bindings.
+
+The workflow does not apply remote D1 migrations or change Worker secrets. Apply migrations intentionally before deploying a code revision that requires them, and configure `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, and `AUTH_EMAIL` as Worker secrets as described below. Protect `main` with the repository rules you want before relying on pushes to deploy production.
+
 1. Install dependencies and authenticate Wrangler on your machine:
 
    ```sh
@@ -96,7 +105,7 @@ unset OWNER_PASSWORD
 
 Choose only the intended local or remote block. The email **must match `AUTH_EMAIL`**; the script cannot read or change that remote secret. The name is optional and defaults to `Owner`. The script normalizes the email, safely quotes SQL values, hashes the password, and leaves existing users and passwords untouched on repeat runs. It creates no session and does not claim to verify email ownership. It requires an explicit `--local` or `--remote` target and removes its private temporary SQL file afterward. There is no self-service password reset; password changes require an intentional administrative update.
 
-For an **existing deployment**, apply `pnpm run db:remote` before deploying this revision-aware Worker. The migration adds fields and points existing rows at their original R2 files; it does not replace those files. Reload already-open browser tabs after upgrading, since saves now require the revision returned by the API. Remote migrations and deployment require the owner's approval.
+For an **existing deployment**, apply `pnpm run db:remote` before deploying this revision-aware Worker. The migration adds fields and points existing rows at their original R2 files; it does not replace those files. Reload already-open browser tabs after upgrading, since saves now require the revision returned by the API. Remote migrations require the owner's approval; automatic deployments run when an authorized change is pushed to `main`.
 
 ### Verify the deployment
 
